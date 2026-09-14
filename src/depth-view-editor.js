@@ -2,6 +2,12 @@ import './skip-to-final.js';
 
 const editor = document.querySelector('#depthViewsEditor');
 const info = document.querySelector('#depthInfo');
+const showGlbTarget = document.querySelector('#showGlbTarget');
+const targetMode = document.querySelector('#targetMode');
+
+// Hard default: the GLB reference is hidden unless the user explicitly enables it.
+window.BUONAROTTI_SHOW_GLB_TARGET = false;
+if (showGlbTarget) showGlbTarget.checked = false;
 
 const PRESETS = [
   ['Frente', 0],
@@ -21,6 +27,15 @@ function getRefs() {
 function rebuildTarget() {
   if (window.Buonarotti?.setTargetMode) window.Buonarotti.setTargetMode('depth');
 }
+
+function refreshGlbVisibility() {
+  window.BUONAROTTI_SHOW_GLB_TARGET = !!showGlbTarget?.checked;
+  if (targetMode?.value === 'glb' && window.Buonarotti?.setTargetMode) {
+    window.Buonarotti.setTargetMode('glb');
+  }
+}
+
+showGlbTarget?.addEventListener('change', refreshGlbVisibility);
 
 function applyAngle(id, angle) {
   const refs = getRefs();
@@ -101,5 +116,8 @@ function render() {
 }
 
 window.addEventListener('buonarotti:reference-views-changed', render);
-window.addEventListener('load', render);
+window.addEventListener('load', () => {
+  render();
+  refreshGlbVisibility();
+});
 setTimeout(render, 0);
