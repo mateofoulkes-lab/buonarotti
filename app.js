@@ -14,7 +14,7 @@ const ui = {
   blockPreset: $('#blockPreset'), voxelResolution: $('#voxelResolutionSelect'), speed: $('#speedSelect'),
   surface: $('#surfaceCount'), removed: $('#removedCount'), resolution: $('#resolutionText'), pass: $('#passText'), frontier: $('#frontierText'),
   status: $('#statusText'), dot: $('#statusDot'), targetMode: $('#targetMode'), depthFiles: $('#depthFiles'), depthInfo: $('#depthInfo'),
-  glbFile: $('#glbFile'), glbInfo: $('#glbInfo')
+  glbFile: $('#glbFile'), glbInfo: $('#glbInfo'), showTarget: $('#showGlbTarget')
 };
 
 const BLOCK_PRESETS = {
@@ -96,9 +96,25 @@ function setStatus(text, sticky = false) {
   }, 900);
 }
 
-function setGLBVisualVisible(visible) {
-  if (glbTargetField?.visual) glbTargetField.visual.visible = visible;
+function targetVisualEnabled() {
+  return !!ui.showTarget?.checked;
 }
+
+function setGLBVisualVisible(visible) {
+  window.BUONAROTTI_SHOW_GLB_TARGET = !!visible;
+  if (glbTargetField?.visual) glbTargetField.visual.visible = !!visible;
+}
+
+function syncTargetVisuals() {
+  const enabled = targetVisualEnabled();
+  const mode = ui.targetMode.value;
+  demoSphere.visible = enabled && mode === 'sphere';
+  setGLBVisualVisible(enabled && mode === 'glb');
+}
+
+// Hard default: no cyan reference mesh unless the user explicitly enables it.
+if (ui.showTarget) ui.showTarget.checked = false;
+window.BUONAROTTI_SHOW_GLB_TARGET = false;
 
 function applyTargetMode() {
   sculptor?.stop();
@@ -117,7 +133,7 @@ function applyTargetMode() {
     const spec = sphereSpec();
     planner.setTargetField(AnalyticTargetField.sphere(spec));
     updateDemoSphere();
-    demoSphere.visible = true;
+    syncTargetVisuals();
     setStatus('OBJETIVO ESFERA');
     updateLayerReadout();
     return;
@@ -131,8 +147,8 @@ function applyTargetMode() {
       return;
     }
     glbTargetField.fitToStock(stock);
-    setGLBVisualVisible(true);
     planner.setTargetField(glbTargetField);
+    syncTargetVisuals();
     setStatus(`GLB ACTIVO · ${glbTargetField.name}`);
     updateLayerReadout();
     return;
@@ -283,7 +299,7 @@ async function loadGLBFile(file) {
   try {
     glbTargetField?.dispose();
     glbTargetField = await GLBTargetField.fromFile(file, { stock, visualRoot: stockRoot });
-    glbTargetField.visual.visible = ui.targetMode.value === 'glb';
+    setGLBVisualVisible(false);
     ui.glbInfo.textContent = `${file.name} · ajustado al bloque ${stock.actualDimensions.x.toFixed(2)}×${stock.actualDimensions.y.toFixed(2)}×${stock.actualDimensions.z.toFixed(2)}`;
     ui.targetMode.value = 'glb';
     applyTargetMode();
@@ -316,6 +332,7 @@ ui.sculpt.addEventListener('click',()=>{
 ui.blockPreset.addEventListener('change',()=>setBlockPreset(ui.blockPreset.value));
 ui.voxelResolution.addEventListener('change',()=>setVoxelResolution(ui.voxelResolution.value));
 ui.targetMode.addEventListener('change',applyTargetMode);
+ui.showTarget?.addEventListener('change', syncTargetVisuals);
 ui.depthFiles.addEventListener('change', async () => {
   const files=[...ui.depthFiles.files];
   sculptor.stop();
@@ -379,6 +396,7 @@ window.Buonarotti={
   setTool,
   rotateStock(deg){stopAutomaticForManual();platter.rotation.y=THREE.MathUtils.degToRad(deg);ui.turntable.value=deg},
   setAutoTurntable(value){ui.autoTurntable.checked=!!value},
+  setTargetVisualVisible(value){if(ui.showTarget){ui.showTarget.checked=!!value;syncTargetVisuals()}},
   carve:cut,
   setCarveLatched(value){carveLatched=!!value;updateLatchUI()},
   setSpeed(multiplier){if([1,4,8,16].includes(Number(multiplier)))ui.speed.value=String(multiplier)},
@@ -393,7 +411,7 @@ window.Buonarotti={
   reset(){ui.reset.click()},
   getState(){return{
     toolPosition:target.toArray(),tool:currentTool,turntableDegrees:THREE.MathUtils.radToDeg(platter.rotation.y),autoTurntable:ui.autoTurntable.checked,
-    activeSurfaceCells:stock.surface.size,removedCells:stock.removed.size,resolution:[stock.nx,stock.ny,stock.nz],dimensions:stock.actualDimensions,
+    targetVisualVisible:targetVisualEnabled(),activeSurfaceCells:stock.surface.size,removedCells:stock.removed.size,resolution:[stock.nx,stock.ny,stock.nz],dimensions:stock.actualDimensions,
     resolutionMultiplier:stock.resolutionMultiplier,targetMode:ui.targetMode.value,depthViews:referenceViews.getSummary(),glb:glbTargetField?.name || null,carveLatched,speed:getSpeed(),
     layer:planner.getLayerState(),sculptor:sculptor.getState()
   }}
