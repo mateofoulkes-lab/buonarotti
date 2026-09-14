@@ -2,41 +2,86 @@ export class OutsideInPlanner {
   constructor(stock, targetField = null) {
     this.stock = stock;
     this.targetField = targetField;
+    this.layerKeys = null;
+    this.layerNumber = 0;
   }
 
   setTargetField(targetField) {
     this.targetField = targetField;
+    this.resetLayers();
   }
 
   clearTargetField() {
     this.targetField = null;
+    this.resetLayers();
   }
 
-  isCellRemovable(x, y, z) {
-    if (!this.stock.solid(x, y, z)) return false;
-    const key = this.stock.key(x, y, z);
-    if (!this.stock.surface.has(key)) return false;
+  resetLayers() {
+    this.layerKeys = null;
+    this.layerNumber = 0;
+  }
+
+  _targetAllows(x, y, z) {
     if (!this.targetField) return true;
     const p = this.stock.toLocal(x, y, z, this.stock.p);
     return this.targetField.isDefinitelyOutside(p);
   }
 
-  getRemovableSurfaceCells() {
-    const cells = [];
-    this.stock.forEachSurface((x, y, z, p) => {
-      if (!this.targetField || this.targetField.isDefinitelyOutside(p)) {
-        cells.push({ x, y, z, key: this.stock.key(x,y,z), point: p.clone() });
-      }
+  _buildLayer() {
+    const keys = new Set();
+    this.stock.forEachSurface((x, y, z) => {
+      if (this._targetAllows(x, y, z)) keys.add(this.stock.key(x,y,z));
     });
+    this.layerKeys = keys;
+    if (keys.size) this.layerNumber++;
+    return keys;
+  }
+
+  ensureLayer() {
+    if (this.layerKeys === null || this.layerKeys.size === 0) this._buildLayer();
+    return this.layerKeys;
+  }
+
+  _pruneLayer() {
+    if (!this.layerKeys) return;
+    for (const key of [...this.layerKeys]) {
+      const [x,y,z] = key.split(',').map(Number);
+      if (!this.stock.solid(x,y,z)) this.layerKeys.delete(key);
+    }
+  }
+
+  isCellRemovable(x, y, z) {
+    const layer = this.ensureLayer();
+    const key = this.stock.key(x,y,z);
+    return this.stock.solid(x,y,z) && this.stock.surface.has(key) && layer.has(key) && this._targetAllows(x,y,z);
+  }
+
+  getRemovableSurfaceCells() {
+    const layer = this.ensureLayer();
+    const cells = [];
+    for (const key of layer) {
+      const [x,y,z] = key.split(',').map(Number);
+      if (!this.stock.solid(x,y,z) || !this.stock.surface.has(key)) continue;
+      const p = this.stock.toLocal(x,y,z,this.stock.p);
+      cells.push({ x, y, z, key, point: p.clone() });
+    }
     return cells;
   }
 
   carveSphere(localPoint, radius) {
-    const target = this.targetField;
-    return this.stock.removeSurfaceSphere(
+    const layer = this.ensureLayer();
+    if (!layer.size) return 0;
+    const n = this.stock.removeSurfaceSphere(
       localPoint,
       radius,
-      target ? (_x, _y, _z, p) => target.isDefinitelyOutside(p) : null
+      (x,y,z) => layer.has(this.stock.key(x,y,z)) && this._targetAllows(x,y,z)
     );
+    this._pruneLayer();
+    return n;
+  }
+
+  getLayerState() {
+    const layer = this.ensureLayer();
+    return { layer: this.layerNumber, remaining: layer.size };
   }
 }
