@@ -80,6 +80,36 @@ export class OutsideInPlanner {
     return n;
   }
 
+  /**
+   * Fast-forward primitive: remove the ENTIRE currently eligible outer layer in
+   * one stock update. Only after that layer is gone can a newly exposed inner
+   * layer be built, so the same strict outside -> inward invariant is preserved.
+   */
+  removeCurrentLayerBulk() {
+    const layer = this.ensureLayer();
+    if (!layer.size) return { removed: 0, layer: this.layerNumber, complete: true };
+
+    const cells = [];
+    for (const key of layer) {
+      const [x,y,z] = key.split(',').map(Number);
+      if (!this.stock.solid(x,y,z) || !this.stock.surface.has(key)) continue;
+      if (!this._targetAllows(x,y,z)) continue;
+      cells.push([x,y,z]);
+    }
+
+    if (!cells.length) {
+      this.layerKeys = null;
+      const next = this.ensureLayer();
+      return { removed: 0, layer: this.layerNumber, complete: next.size === 0 };
+    }
+
+    this.stock.removeCells(cells);
+    const removed = cells.length;
+    // Force the next call to derive a brand-new frontier from the newly exposed shell.
+    this.layerKeys = null;
+    return { removed, layer: this.layerNumber, complete: false };
+  }
+
   getLayerState() {
     const layer = this.ensureLayer();
     return { layer: this.layerNumber, remaining: layer.size };
