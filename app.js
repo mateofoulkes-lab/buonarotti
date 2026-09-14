@@ -3,16 +3,18 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SparseShell } from './src/sparse-shell.js';
 import { ReferenceViews } from './src/reference-views.js';
 import { AnalyticTargetField, DepthTargetField } from './src/target-field.js';
+import { GLBTargetField } from './src/glb-target-field.js';
 import { OutsideInPlanner } from './src/outside-in-planner.js';
 import { AutoSculptor } from './src/auto-sculptor.js';
 
 const $ = s => document.querySelector(s);
 const ui = {
-  canvas: $('#view'), x: $('#x'), y: $('#y'), z: $('#z'), turntable: $('#turntable'),
+  canvas: $('#view'), x: $('#x'), y: $('#y'), z: $('#z'), turntable: $('#turntable'), autoTurntable: $('#autoTurntable'),
   tool: $('#toolSelect'), carve: $('#carveBtn'), carveLatch: $('#carveLatchBtn'), sculpt: $('#sculptBtn'), reset: $('#resetBtn'),
   blockPreset: $('#blockPreset'), voxelResolution: $('#voxelResolutionSelect'), speed: $('#speedSelect'),
   surface: $('#surfaceCount'), removed: $('#removedCount'), resolution: $('#resolutionText'), pass: $('#passText'), frontier: $('#frontierText'),
-  status: $('#statusText'), dot: $('#statusDot'), targetMode: $('#targetMode'), depthFiles: $('#depthFiles'), depthInfo: $('#depthInfo')
+  status: $('#statusText'), dot: $('#statusDot'), targetMode: $('#targetMode'), depthFiles: $('#depthFiles'), depthInfo: $('#depthInfo'),
+  glbFile: $('#glbFile'), glbInfo: $('#glbInfo')
 };
 
 const BLOCK_PRESETS = {
@@ -63,6 +65,7 @@ const stock = new SparseShell({
 const referenceViews = new ReferenceViews();
 window.BuonarottiReferenceViews = referenceViews;
 const planner = new OutsideInPlanner(stock);
+let glbTargetField = null;
 
 const demoSphere = new THREE.Mesh(
   new THREE.SphereGeometry(1.05, 32, 20),
@@ -93,9 +96,14 @@ function setStatus(text, sticky = false) {
   }, 900);
 }
 
+function setGLBVisualVisible(visible) {
+  if (glbTargetField?.visual) glbTargetField.visual.visible = visible;
+}
+
 function applyTargetMode() {
   sculptor?.stop();
   demoSphere.visible = false;
+  setGLBVisualVisible(false);
   const mode = ui.targetMode.value;
 
   if (mode === 'none') {
@@ -111,6 +119,21 @@ function applyTargetMode() {
     updateDemoSphere();
     demoSphere.visible = true;
     setStatus('OBJETIVO ESFERA');
+    updateLayerReadout();
+    return;
+  }
+
+  if (mode === 'glb') {
+    if (!glbTargetField) {
+      planner.clearTargetField();
+      setStatus('FALTA GLB');
+      updateLayerReadout();
+      return;
+    }
+    glbTargetField.fitToStock(stock);
+    setGLBVisualVisible(true);
+    planner.setTargetField(glbTargetField);
+    setStatus(`GLB ACTIVO · ${glbTargetField.name}`);
     updateLayerReadout();
     return;
   }
@@ -170,11 +193,22 @@ function cut() {
   return n;
 }
 
+function orientTurntableTo(localPoint) {
+  if (!ui.autoTurntable?.checked) return;
+  const angle = -Math.atan2(localPoint.x, localPoint.z);
+  platter.rotation.y = angle;
+  let deg = THREE.MathUtils.radToDeg(angle);
+  deg = ((deg + 180) % 360 + 360) % 360 - 180;
+  ui.turntable.value = String(deg);
+}
+
 const sculptor = new AutoSculptor({
   planner,
   stock,
   getToolRadius: () => tools[currentTool].radius,
   onMove: localPoint => {
+    orientTurntableTo(localPoint);
+    stockRoot.updateMatrixWorld(true);
     const worldPoint = stockRoot.localToWorld(localPoint.clone());
     target.copy(worldPoint);
     syncSliders();
@@ -206,18 +240,24 @@ function updateLatchUI() {
   ui.carveLatch.classList.toggle('active', carveLatched);
 }
 
+function refreshTargetAfterStockChange() {
+  if (glbTargetField) glbTargetField.fitToStock(stock);
+  updateDemoSphere();
+  applyTargetMode();
+  updateLayerReadout();
+}
+
 function setBlockPreset(name) {
   const dims = BLOCK_PRESETS[name] || BLOCK_PRESETS.cube;
   sculptor.reset(); planner.resetLayers(); carveLatched = false; updateLatchUI();
   stock.configureDimensions(dims, true);
-  updateDemoSphere();
   const safeY = Math.min(dims.y * .55, dims.y - .15);
   target.set(0, safeY, dims.z * .5 + .55);
   syncSliders();
   ui.y.max = Math.max(4.2, dims.y + .5);
   ui.x.min = -(dims.x * .5 + 1); ui.x.max = dims.x * .5 + 1;
   ui.z.min = -(dims.z * .5 + 1); ui.z.max = dims.z * .5 + 1;
-  applyTargetMode();
+  refreshTargetAfterStockChange();
   setStatus(`BLOQUE ${name.toUpperCase()} LISTO`);
 }
 
@@ -226,14 +266,35 @@ function setVoxelResolution(multiplier) {
   sculptor.reset(); planner.resetLayers(); carveLatched = false; momentaryCarving = false; updateLatchUI();
   try {
     stock.setResolutionMultiplier(multiplier, true);
-    updateDemoSphere();
-    applyTargetMode();
-    updateLayerReadout();
+    refreshTargetAfterStockChange();
     setStatus(`RESOLUCIÓN VOXEL ${multiplier}×`);
   } catch (err) {
     console.error(err);
     ui.voxelResolution.value = String(stock.resolutionMultiplier || 1);
     setStatus('ERROR DE RESOLUCIÓN');
+  }
+}
+
+async function loadGLBFile(file) {
+  if (!file) return null;
+  sculptor.stop();
+  setStatus('CARGANDO GLB', true);
+  ui.glbInfo.textContent = 'Cargando GLB…';
+  try {
+    glbTargetField?.dispose();
+    glbTargetField = await GLBTargetField.fromFile(file, { stock, visualRoot: stockRoot });
+    glbTargetField.visual.visible = ui.targetMode.value === 'glb';
+    ui.glbInfo.textContent = `${file.name} · ajustado al bloque ${stock.actualDimensions.x.toFixed(2)}×${stock.actualDimensions.y.toFixed(2)}×${stock.actualDimensions.z.toFixed(2)}`;
+    ui.targetMode.value = 'glb';
+    applyTargetMode();
+    return glbTargetField;
+  } catch (err) {
+    console.error(err);
+    glbTargetField?.dispose();
+    glbTargetField = null;
+    ui.glbInfo.textContent = `Error: ${err.message}`;
+    setStatus('ERROR GLB', true);
+    throw err;
   }
 }
 
@@ -246,8 +307,9 @@ ui.carveLatch.addEventListener('click',()=>{stopAutomaticForManual();carveLatche
 ui.sculpt.addEventListener('click',()=>{
   carveLatched=false; momentaryCarving=false; updateLatchUI();
   if (sculptor.running) { sculptor.stop(); setStatus('ESCULTURA PAUSADA'); return; }
-  if (!planner.targetField) { setStatus('ELEGÍ ESFERA O DEPTHMAPS'); return; }
+  if (!planner.targetField) { setStatus('ELEGÍ ESFERA, DEPTHMAPS O GLB'); return; }
   if (ui.targetMode.value === 'depth' && !referenceViews.views.length) { setStatus('CARGÁ DEPTHMAPS PRIMERO'); return; }
+  if (ui.targetMode.value === 'glb' && !glbTargetField) { setStatus('CARGÁ UN GLB PRIMERO'); return; }
   try { sculptor.start(stockRoot.worldToLocal(target.clone())); }
   catch(err) { setStatus(err.message.toUpperCase()); }
 });
@@ -264,6 +326,12 @@ ui.depthFiles.addEventListener('change', async () => {
     ui.depthInfo.textContent=summary.map(v=>`${v.angleDeg}° ${v.name}`).join(' · ');
     if(ui.targetMode.value==='depth')applyTargetMode();
   }catch(err){console.error(err);ui.depthInfo.textContent=`Error: ${err.message}`;setStatus('ERROR DEPTHMAP')}
+});
+ui.glbFile.addEventListener('change', async () => {
+  const file = ui.glbFile.files?.[0];
+  if (file) {
+    try { await loadGLBFile(file); } catch {}
+  }
 });
 ui.reset.addEventListener('click',()=>{
   sculptor.reset(); planner.resetLayers(); stock.reset(); target.set(0,Math.min(stock.actualDimensions.y*.55,2),stock.actualDimensions.z*.5+.55);
@@ -310,6 +378,7 @@ window.Buonarotti={
   moveToolTo(x,y,z){stopAutomaticForManual();target.set(x,y,z);syncSliders();return target.toArray()},
   setTool,
   rotateStock(deg){stopAutomaticForManual();platter.rotation.y=THREE.MathUtils.degToRad(deg);ui.turntable.value=deg},
+  setAutoTurntable(value){ui.autoTurntable.checked=!!value},
   carve:cut,
   setCarveLatched(value){carveLatched=!!value;updateLatchUI()},
   setSpeed(multiplier){if([1,4,8,16].includes(Number(multiplier)))ui.speed.value=String(multiplier)},
@@ -320,11 +389,12 @@ window.Buonarotti={
   setTargetMode(mode){ui.targetMode.value=mode;applyTargetMode()},
   autodetectViewsByName(){const result=referenceViews.autodetectAnglesByName();applyTargetMode();return result},
   async loadDepthFiles(files){const result=await referenceViews.loadDepthFiles(files);applyTargetMode();return result},
+  loadGLBFile,
   reset(){ui.reset.click()},
   getState(){return{
-    toolPosition:target.toArray(),tool:currentTool,turntableDegrees:THREE.MathUtils.radToDeg(platter.rotation.y),
+    toolPosition:target.toArray(),tool:currentTool,turntableDegrees:THREE.MathUtils.radToDeg(platter.rotation.y),autoTurntable:ui.autoTurntable.checked,
     activeSurfaceCells:stock.surface.size,removedCells:stock.removed.size,resolution:[stock.nx,stock.ny,stock.nz],dimensions:stock.actualDimensions,
-    resolutionMultiplier:stock.resolutionMultiplier,targetMode:ui.targetMode.value,depthViews:referenceViews.getSummary(),carveLatched,speed:getSpeed(),
+    resolutionMultiplier:stock.resolutionMultiplier,targetMode:ui.targetMode.value,depthViews:referenceViews.getSummary(),glb:glbTargetField?.name || null,carveLatched,speed:getSpeed(),
     layer:planner.getLayerState(),sculptor:sculptor.getState()
   }}
 };
