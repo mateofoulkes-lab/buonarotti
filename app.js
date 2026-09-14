@@ -1,11 +1,17 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { SparseShell } from './src/sparse-shell.js';
+import { ReferenceViews } from './src/reference-views.js';
+import { AnalyticTargetField, DepthTargetField } from './src/target-field.js';
+import { OutsideInPlanner } from './src/outside-in-planner.js';
 
 const $ = s => document.querySelector(s);
 const ui = {
   canvas: $('#view'), x: $('#x'), y: $('#y'), z: $('#z'), turntable: $('#turntable'),
   tool: $('#toolSelect'), carve: $('#carveBtn'), auto: $('#autoBtn'), reset: $('#resetBtn'),
-  surface: $('#surfaceCount'), removed: $('#removedCount'), status: $('#statusText'), dot: $('#statusDot')
+  surface: $('#surfaceCount'), removed: $('#removedCount'), resolution: $('#resolutionText'),
+  status: $('#statusText'), dot: $('#statusDot'), targetMode: $('#targetMode'),
+  depthFiles: $('#depthFiles'), depthInfo: $('#depthInfo')
 };
 
 const renderer = new THREE.WebGLRenderer({ canvas: ui.canvas, antialias: true });
@@ -35,43 +41,60 @@ const platterMesh = new THREE.Mesh(new THREE.CylinderGeometry(2.15,2.25,.24,64),
 platterMesh.position.y=.12; platterMesh.castShadow=platterMesh.receiveShadow=true; platter.add(platterMesh);
 const stockRoot = new THREE.Group(); stockRoot.position.y=.26; platter.add(stockRoot);
 
-const DIRS=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
-class SparseShell {
-  constructor(size=32, worldSize=3){
-    this.size=size; this.worldSize=worldSize; this.cell=worldSize/size; this.half=worldSize/2;
-    this.removed=new Set(); this.surface=new Set(); this.p=new THREE.Vector3(); this.m=new THREE.Matrix4();
-    const geo=new THREE.BoxGeometry(this.cell*.98,this.cell*.98,this.cell*.98);
-    const mat=new THREE.MeshStandardMaterial({color:0xd9e6ef,roughness:.88});
-    this.mesh=new THREE.InstancedMesh(geo,mat,size*size*6+14000); this.mesh.castShadow=this.mesh.receiveShadow=true;
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); stockRoot.add(this.mesh); this.reset();
+const stock = new SparseShell({
+  root: stockRoot,
+  size: 32,
+  worldSize: 3,
+  onStats: ({surface, removed, resolution}) => {
+    if (ui.surface) ui.surface.textContent = surface.toLocaleString('es-AR');
+    if (ui.removed) ui.removed.textContent = removed.toLocaleString('es-AR');
+    if (ui.resolution) ui.resolution.textContent = `${resolution}³`;
   }
-  key(x,y,z){return `${x},${y},${z}`}
-  inside(x,y,z){return x>=0&&y>=0&&z>=0&&x<this.size&&y<this.size&&z<this.size}
-  solid(x,y,z){return this.inside(x,y,z)&&!this.removed.has(this.key(x,y,z))}
-  exposed(x,y,z){return this.solid(x,y,z)&&DIRS.some(([a,b,c])=>!this.solid(x+a,y+b,z+c))}
-  toLocal(x,y,z,out=this.p){return out.set((x+.5)*this.cell-this.half,(y+.5)*this.cell,(z+.5)*this.cell-this.half)}
-  toCell(v){return {x:Math.floor((v.x+this.half)/this.cell),y:Math.floor(v.y/this.cell),z:Math.floor((v.z+this.half)/this.cell)}}
-  reset(){
-    this.removed.clear(); this.surface.clear(); const n=this.size;
-    for(let x=0;x<n;x++)for(let y=0;y<n;y++)for(let z=0;z<n;z++) if(x===0||y===0||z===0||x===n-1||y===n-1||z===n-1) this.surface.add(this.key(x,y,z));
-    this.rebuild();
+});
+
+const referenceViews = new ReferenceViews();
+const planner = new OutsideInPlanner(stock);
+
+const demoSphere = new THREE.Mesh(
+  new THREE.SphereGeometry(1.05, 32, 20),
+  new THREE.MeshBasicMaterial({ color: 0x59d9ff, wireframe: true, transparent: true, opacity: .22, depthWrite: false })
+);
+demoSphere.position.set(0,1.45,0);
+demoSphere.visible = false;
+stockRoot.add(demoSphere);
+
+function applyTargetMode() {
+  const mode = ui.targetMode.value;
+  demoSphere.visible = false;
+
+  if (mode === 'none') {
+    planner.clearTargetField();
+    setStatus('OUTSIDE-IN LIBRE');
+    return;
   }
-  removeSphere(point,radius){
-    const c=this.toCell(point), rr=Math.ceil(radius/this.cell)+1, touched=[];
-    for(let x=c.x-rr;x<=c.x+rr;x++)for(let y=c.y-rr;y<=c.y+rr;y++)for(let z=c.z-rr;z<=c.z+rr;z++){
-      if(!this.solid(x,y,z))continue; this.toLocal(x,y,z);
-      if(this.p.distanceTo(point)<=radius){const k=this.key(x,y,z);this.removed.add(k);this.surface.delete(k);touched.push([x,y,z]);}
-    }
-    if(!touched.length)return 0;
-    for(const [x,y,z] of touched) for(const [a,b,c] of DIRS){const X=x+a,Y=y+b,Z=z+c;if(this.exposed(X,Y,Z))this.surface.add(this.key(X,Y,Z));}
-    this.rebuild(); return touched.length;
+
+  if (mode === 'sphere') {
+    planner.setTargetField(AnalyticTargetField.sphere({ center: new THREE.Vector3(0,1.45,0), radius: 1.05 }));
+    demoSphere.visible = true;
+    setStatus('OBJETIVO ESFERA');
+    return;
   }
-  rebuild(){
-    let i=0; for(const k of this.surface){const [x,y,z]=k.split(',').map(Number);this.toLocal(x,y,z);this.m.makeTranslation(this.p.x,this.p.y,this.p.z);this.mesh.setMatrixAt(i++,this.m);}
-    this.mesh.count=i; this.mesh.instanceMatrix.needsUpdate=true; ui.surface.textContent=this.surface.size.toLocaleString('es-AR'); ui.removed.textContent=this.removed.size.toLocaleString('es-AR');
+
+  if (!referenceViews.views.length) {
+    planner.clearTargetField();
+    setStatus('FALTAN DEPTHMAPS');
+    return;
   }
+
+  planner.setTargetField(new DepthTargetField(referenceViews, {
+    worldSize: stock.worldSize,
+    height: stock.worldSize,
+    minOutsideVotes: 2,
+    silhouetteVotes: 2,
+    depthTolerance: .025
+  }));
+  setStatus(`${referenceViews.views.length} DEPTHMAPS ACTIVOS`);
 }
-const stock=new SparseShell(32,3);
 
 const robotBase=new THREE.Vector3(-4.1,.8,0), target=new THREE.Vector3(0,1.55,2.05), toolForward=new THREE.Vector3(0,0,-1);
 const robot=new THREE.Group(); scene.add(robot);
@@ -92,16 +115,43 @@ function updateRobot(){
 
 const tools={coarse:{radius:.28,visual:.19},fine:{radius:.17,visual:.13},needle:{radius:.095,visual:.09}};
 let currentTool='coarse', carving=false, auto=false, lastCut=0;
-function setStatus(s){ui.status.textContent=s;clearTimeout(setStatus.t);setStatus.t=setTimeout(()=>ui.status.textContent=auto?'AUTO DEMO':'LISTO',650)}
-function cut(){const p=stockRoot.worldToLocal(target.clone()),n=stock.removeSphere(p,tools[currentTool].radius);if(n)setStatus(`REMOVIDOS +${n}`);return n}
+function setStatus(s){ui.status.textContent=s;clearTimeout(setStatus.t);setStatus.t=setTimeout(()=>ui.status.textContent=auto?'AUTO DEMO':'LISTO',900)}
+function cut(){
+  const p=stockRoot.worldToLocal(target.clone());
+  const n=planner.carveSphere(p,tools[currentTool].radius);
+  if(n)setStatus(`CAPA EXTERIOR -${n}`);
+  return n;
+}
 function syncTarget(){target.set(+ui.x.value,+ui.y.value,+ui.z.value)}
 function syncSliders(){ui.x.value=target.x;ui.y.value=target.y;ui.z.value=target.z}
 function autoUI(){ui.auto.textContent=auto?'Detener auto':'Auto demo';ui.status.textContent=auto?'AUTO DEMO':'LISTO';ui.dot.style.background=auto?'#e4c763':'#57db8b'}
 function setTool(name){currentTool=name;ui.tool.value=name;tip.scale.setScalar(tools[name].visual/.13)}
 [ui.x,ui.y,ui.z].forEach(e=>e.addEventListener('input',()=>{auto=false;autoUI();syncTarget()}));
 ui.turntable.addEventListener('input',()=>platter.rotation.y=THREE.MathUtils.degToRad(+ui.turntable.value));
-ui.tool.addEventListener('change',()=>setTool(ui.tool.value));ui.carve.addEventListener('pointerdown',()=>carving=true);window.addEventListener('pointerup',()=>carving=false);
-ui.auto.addEventListener('click',()=>{auto=!auto;autoUI()});ui.reset.addEventListener('click',()=>{stock.reset();target.set(0,1.55,2.05);platter.rotation.y=0;ui.turntable.value=0;auto=false;syncSliders();autoUI()});
+ui.tool.addEventListener('change',()=>setTool(ui.tool.value));
+ui.carve.addEventListener('pointerdown',()=>carving=true);window.addEventListener('pointerup',()=>carving=false);
+ui.auto.addEventListener('click',()=>{auto=!auto;autoUI()});
+ui.targetMode.addEventListener('change',applyTargetMode);
+ui.depthFiles.addEventListener('change', async () => {
+  const files = [...ui.depthFiles.files];
+  if (!files.length) {
+    referenceViews.clear();
+    ui.depthInfo.textContent = 'Sin depthmaps cargados';
+    applyTargetMode();
+    return;
+  }
+  try {
+    ui.depthInfo.textContent = 'Leyendo depthmaps…';
+    const summary = await referenceViews.loadDepthFiles(files, { invert: false, alphaIsMask: true });
+    ui.depthInfo.textContent = summary.map(v => `${v.angleDeg}° ${v.name}`).join(' · ');
+    if (ui.targetMode.value === 'depth') applyTargetMode();
+  } catch (err) {
+    console.error(err);
+    ui.depthInfo.textContent = `Error: ${err.message}`;
+    setStatus('ERROR DEPTHMAP');
+  }
+});
+ui.reset.addEventListener('click',()=>{stock.reset();target.set(0,1.55,2.05);platter.rotation.y=0;ui.turntable.value=0;auto=false;syncSliders();autoUI();applyTargetMode()});
 
 const held=new Set();window.addEventListener('keydown',e=>{if(['INPUT','SELECT'].includes(document.activeElement?.tagName))return;held.add(e.code);if(e.code==='Space'){e.preventDefault();carving=true}});window.addEventListener('keyup',e=>{held.delete(e.code);if(e.code==='Space')carving=false});
 function jog(dt){const s=1.2*dt;if(held.has('KeyA'))target.x-=s;if(held.has('KeyD'))target.x+=s;if(held.has('KeyR'))target.y+=s;if(held.has('KeyF'))target.y-=s;if(held.has('KeyW'))target.z-=s;if(held.has('KeyS'))target.z+=s;target.x=THREE.MathUtils.clamp(target.x,-2.4,2.4);target.y=THREE.MathUtils.clamp(target.y,.15,3);target.z=THREE.MathUtils.clamp(target.z,-2.1,2.1);if(held.size)syncSliders()}
@@ -111,13 +161,15 @@ function viewport(cam,x,y,w,h){renderer.setViewport(x,y,w,h);renderer.setScissor
 function render(){const r=ui.canvas.getBoundingClientRect();renderer.setSize(r.width,r.height,false);const W=ui.canvas.width,H=ui.canvas.height,mw=Math.floor(W/3.25),mh=Math.floor(H/3.25);renderer.setScissorTest(false);renderer.clear();viewport(mainCam,0,0,W,H);viewport(topCam,W-mw*2-12,12,mw,mh);viewport(sideCam,W-mw-6,12,mw,mh);viewport(wristCam,W-mw-6,mh+18,mw,mh);renderer.setScissorTest(false)}
 
 let prev=performance.now();function loop(t){const dt=Math.min((t-prev)/1000,.05);prev=t;jog(dt);autoDemo(t);updateRobot();if(carving&&t-lastCut>42){cut();lastCut=t}if(!auto&&!held.has('Space')&&!ui.carve.matches(':active'))carving=false;orbit.update();render();requestAnimationFrame(loop)}
-setTool('coarse');syncTarget();updateRobot();requestAnimationFrame(loop);
+setTool('coarse');syncTarget();updateRobot();applyTargetMode();requestAnimationFrame(loop);
 
 window.Buonarotti={
   moveToolTo(x,y,z){target.set(x,y,z);syncSliders();return [...target]},
   setTool,
   rotateStock(deg){platter.rotation.y=THREE.MathUtils.degToRad(deg);ui.turntable.value=deg},
   carve:cut,
+  setTargetMode(mode){ui.targetMode.value=mode;applyTargetMode()},
+  async loadDepthFiles(files){const result=await referenceViews.loadDepthFiles(files);applyTargetMode();return result},
   reset(){ui.reset.click()},
-  getState(){return{toolPosition:target.toArray(),tool:currentTool,turntableDegrees:THREE.MathUtils.radToDeg(platter.rotation.y),activeSurfaceCells:stock.surface.size,removedCells:stock.removed.size,resolution:stock.size}}
+  getState(){return{toolPosition:target.toArray(),tool:currentTool,turntableDegrees:THREE.MathUtils.radToDeg(platter.rotation.y),activeSurfaceCells:stock.surface.size,removedCells:stock.removed.size,resolution:stock.size,targetMode:ui.targetMode.value,depthViews:referenceViews.getSummary()}}
 };
