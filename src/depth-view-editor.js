@@ -1,3 +1,5 @@
+import './skip-to-final.js';
+
 const editor = document.querySelector('#depthViewsEditor');
 const info = document.querySelector('#depthInfo');
 
