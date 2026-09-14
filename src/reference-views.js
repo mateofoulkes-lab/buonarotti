@@ -10,43 +10,34 @@ async function fileToImageData(file) {
   return data;
 }
 
-function inferAngle(name, fallback) {
+export function inferAngleFromName(name, fallback = 0) {
   const lower = name.toLowerCase();
   const named = [
-    ['front', 0], ['frente', 0], ['right', 90], ['derecha', 90],
-    ['back', 180], ['trasera', 180], ['atras', 180], ['left', 270], ['izquierda', 270]
+    ['front', 0], ['frente', 0],
+    ['front-right', 45], ['frente-derecha', 45], ['frente_derecha', 45],
+    ['right', 90], ['derecha', 90],
+    ['back-right', 135], ['atras-derecha', 135], ['atrás-derecha', 135], ['trasera-derecha', 135],
+    ['back', 180], ['trasera', 180], ['atras', 180], ['atrás', 180],
+    ['back-left', 225], ['atras-izquierda', 225], ['atrás-izquierda', 225], ['trasera-izquierda', 225],
+    ['left', 270], ['izquierda', 270],
+    ['front-left', 315], ['frente-izquierda', 315], ['frente_izquierda', 315]
   ];
   for (const [token, angle] of named) if (lower.includes(token)) return angle;
-  const match = lower.match(/(?:^|[_\-\s])(\d{1,3})(?:deg|°)?(?:[_\-\s.]|$)/);
-  return match ? Number(match[1]) % 360 : fallback;
-}
 
-function normalizeAngle(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-  return ((n % 360) + 360) % 360;
+  // Accept forms such as depth_72.png, pawn-144deg.png, view 288°.png.
+  const match = lower.match(/(?:^|[_\-\s])(\d{1,3}(?:\.\d+)?)(?:deg|°)?(?:[_\-\s.]|$)/);
+  return match ? ((Number(match[1]) % 360) + 360) % 360 : fallback;
 }
 
 export class ReferenceViews {
   constructor() {
     this.views = [];
-    // Small public bridge for the optional UI editor module.
-    window.BuonarottiReferenceViews = this;
   }
 
-  clear() {
-    this.views.length = 0;
-    this.notifyChanged();
-  }
-
-  notifyChanged() {
-    window.dispatchEvent(new CustomEvent('buonarotti:reference-views-changed', {
-      detail: this.getSummary()
-    }));
-  }
+  clear() { this.views.length = 0; }
 
   async loadDepthFiles(files, options = {}) {
-    this.views.length = 0;
+    this.clear();
     const list = [...files];
     for (let i = 0; i < list.length; i++) {
       const file = list[i];
@@ -55,28 +46,42 @@ export class ReferenceViews {
       this.views.push({
         id: `view-${i}`,
         name: file.name,
-        angleDeg: inferAngle(file.name, fallback),
+        angleDeg: inferAngleFromName(file.name, fallback),
         image,
         invert: options.invert ?? false,
         alphaIsMask: options.alphaIsMask ?? true,
         confidence: options.confidence ?? 1
       });
     }
-    this.notifyChanged();
+    this._notifyChanged();
     return this.getSummary();
   }
 
   addImageData({ id, name = id, angleDeg = 0, image, invert = false, alphaIsMask = true, confidence = 1 }) {
-    this.views.push({ id, name, angleDeg: normalizeAngle(angleDeg), image, invert, alphaIsMask, confidence });
-    this.notifyChanged();
+    this.views.push({ id, name, angleDeg, image, invert, alphaIsMask, confidence });
+    this._notifyChanged();
   }
 
   setAngle(id, angleDeg) {
     const view = this.views.find(v => v.id === id);
     if (!view) return false;
-    view.angleDeg = normalizeAngle(angleDeg);
-    this.notifyChanged();
+    view.angleDeg = ((Number(angleDeg) % 360) + 360) % 360;
+    this._notifyChanged();
     return true;
+  }
+
+  autodetectAnglesByName() {
+    const total = Math.max(1, this.views.length);
+    this.views.forEach((view, i) => {
+      const fallback = 360 * i / total;
+      view.angleDeg = inferAngleFromName(view.name, fallback);
+    });
+    this._notifyChanged();
+    return this.getSummary();
+  }
+
+  _notifyChanged() {
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('buonarotti:reference-views-changed'));
   }
 
   sample(view, u, v) {
