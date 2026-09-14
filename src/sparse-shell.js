@@ -11,7 +11,9 @@ export class SparseShell {
   constructor({ root, size = 32, worldSize = 3, dimensions = null, onStats = () => {} } = {}) {
     if (!root) throw new Error('SparseShell requires a THREE.Object3D root');
     this.root = root;
+    this.baseSize = size;
     this.size = size;
+    this.resolutionMultiplier = 1;
     this.baseWorldSize = worldSize;
     this.cell = worldSize / size;
     this.onStats = onStats;
@@ -21,6 +23,18 @@ export class SparseShell {
     this.m = new THREE.Matrix4();
     this.mesh = null;
     this.configureDimensions(dimensions || { x: worldSize, y: worldSize, z: worldSize }, false);
+  }
+
+  setResolutionMultiplier(multiplier = 1, doReset = true) {
+    const allowed = [1, 2, 4];
+    multiplier = Number(multiplier);
+    if (!allowed.includes(multiplier)) throw new Error(`Resolution multiplier must be one of ${allowed.join(', ')}`);
+    if (multiplier === this.resolutionMultiplier) return;
+
+    this.resolutionMultiplier = multiplier;
+    this.size = this.baseSize * multiplier;
+    this.cell = this.baseWorldSize / this.size;
+    this.configureDimensions(this.dimensions, doReset);
   }
 
   configureDimensions(dimensions, doReset = true) {
@@ -148,7 +162,8 @@ export class SparseShell {
       surface: this.surface.size,
       removed: this.removed.size,
       resolution: `${this.nx}×${this.ny}×${this.nz}`,
-      dimensions: this.actualDimensions
+      dimensions: this.actualDimensions,
+      resolutionMultiplier: this.resolutionMultiplier
     });
   }
 }
