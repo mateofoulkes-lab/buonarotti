@@ -21,15 +21,32 @@ function inferAngle(name, fallback) {
   return match ? Number(match[1]) % 360 : fallback;
 }
 
+function normalizeAngle(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return ((n % 360) + 360) % 360;
+}
+
 export class ReferenceViews {
   constructor() {
     this.views = [];
+    // Small public bridge for the optional UI editor module.
+    window.BuonarottiReferenceViews = this;
   }
 
-  clear() { this.views.length = 0; }
+  clear() {
+    this.views.length = 0;
+    this.notifyChanged();
+  }
+
+  notifyChanged() {
+    window.dispatchEvent(new CustomEvent('buonarotti:reference-views-changed', {
+      detail: this.getSummary()
+    }));
+  }
 
   async loadDepthFiles(files, options = {}) {
-    this.clear();
+    this.views.length = 0;
     const list = [...files];
     for (let i = 0; i < list.length; i++) {
       const file = list[i];
@@ -45,11 +62,21 @@ export class ReferenceViews {
         confidence: options.confidence ?? 1
       });
     }
+    this.notifyChanged();
     return this.getSummary();
   }
 
   addImageData({ id, name = id, angleDeg = 0, image, invert = false, alphaIsMask = true, confidence = 1 }) {
-    this.views.push({ id, name, angleDeg, image, invert, alphaIsMask, confidence });
+    this.views.push({ id, name, angleDeg: normalizeAngle(angleDeg), image, invert, alphaIsMask, confidence });
+    this.notifyChanged();
+  }
+
+  setAngle(id, angleDeg) {
+    const view = this.views.find(v => v.id === id);
+    if (!view) return false;
+    view.angleDeg = normalizeAngle(angleDeg);
+    this.notifyChanged();
+    return true;
   }
 
   sample(view, u, v) {
