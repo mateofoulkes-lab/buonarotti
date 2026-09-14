@@ -4,6 +4,7 @@ export class OutsideInPlanner {
     this.targetField = targetField;
     this.layerKeys = null;
     this.layerNumber = 0;
+    if (typeof window !== 'undefined') window.__BUONAROTTI_PLANNER__ = this;
   }
 
   setTargetField(targetField) {
@@ -105,7 +106,6 @@ export class OutsideInPlanner {
 
     this.stock.removeCells(cells);
     const removed = cells.length;
-    // Force the next call to derive a brand-new frontier from the newly exposed shell.
     this.layerKeys = null;
     return { removed, layer: this.layerNumber, complete: false };
   }
