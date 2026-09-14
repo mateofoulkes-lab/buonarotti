@@ -48,6 +48,13 @@
             <option value="flat">Chato — 4 × 2 × 4</option>
           </select>
         </label>
+        <label>Resolución voxel
+          <select id="voxelResolutionSelect">
+            <option value="1">1× — base</option>
+            <option value="2">2× — doble</option>
+            <option value="4">4× — doble otra vez</option>
+          </select>
+        </label>
         <label>Velocidad
           <select id="speedSelect">
             <option value="1">x1</option>
@@ -89,6 +96,10 @@
         <div class="help">
           <b>Regla obligatoria</b>
           <span>Buonarotti agota una corteza exterior completa antes de avanzar a la siguiente. No perfora hacia adentro ni deja columnas exteriores para después.</span>
+        </div>
+        <div class="help">
+          <b>Resolución</b>
+          <span>2× duplica voxeles por eje; 4× vuelve a duplicarlos. 4× puede consumir bastante memoria.</span>
         </div>
         <div class="help">
           <b>Teclado</b>
