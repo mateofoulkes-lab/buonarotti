@@ -42,6 +42,19 @@
         </label>
         <label>Plato <input id="turntable" type="range" min="-180" max="180" value="0" step="1"></label>
 
+        <h2>Objetivo</h2>
+        <label>Modo
+          <select id="targetMode">
+            <option value="none">Libre (sólo outside-in)</option>
+            <option value="sphere">Esfera de prueba</option>
+            <option value="depth">Depthmaps</option>
+          </select>
+        </label>
+        <label class="file-label">Depthmaps PNG
+          <input id="depthFiles" type="file" accept="image/png,image/*" multiple>
+        </label>
+        <div id="depthInfo" class="mini-status">Sin depthmaps cargados</div>
+
         <div class="buttons">
           <button id="carveBtn">Desbastar</button>
           <button id="autoBtn">Auto demo</button>
@@ -54,6 +67,10 @@
           <div><span>Resolución</span><strong id="resolutionText">32³</strong></div>
         </div>
 
+        <div class="help">
+          <b>Regla nueva</b>
+          <span>La herramienta sólo puede quitar la corteza actualmente expuesta. Nunca perfora hasta una superficie interna.</span>
+        </div>
         <div class="help">
           <b>Teclado</b>
           <span>A/D: X · W/S: Z · R/F: Y · Espacio: desbastar</span>
