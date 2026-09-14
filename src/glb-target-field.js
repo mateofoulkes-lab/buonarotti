@@ -62,7 +62,20 @@ export class GLBTargetField {
         side: THREE.DoubleSide
       });
     });
-    return visual;
+
+    // The app may request visibility when GLB mode is active, but the user-facing
+    // preference wins. Default is hidden so the reference never obscures the sculpture.
+    visual.visible = false;
+    return new Proxy(visual, {
+      set(target, prop, value) {
+        if (prop === 'visible') {
+          target.visible = Boolean(value) && window.BUONAROTTI_SHOW_GLB_TARGET === true;
+          return true;
+        }
+        target[prop] = value;
+        return true;
+      }
+    });
   }
 
   fitToStock(stock = this.stock) {
