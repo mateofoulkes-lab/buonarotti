@@ -2,10 +2,8 @@ import * as THREE from 'three';
 
 /**
  * Automatic subtractive sculptor.
- * Important invariant: it snapshots ONE complete removable exterior frontier and
- * refuses to advance to newly exposed material until that frontier is exhausted.
- * This keeps carving globally outside -> inward and avoids leaving pillars/crust
- * behind while drilling toward the target surface.
+ * Invariant: one COMPLETE removable exterior frontier is frozen per pass.
+ * Newly exposed inner cells cannot be considered until that pass is exhausted.
  */
 export class AutoSculptor {
   constructor({ planner, stock, getToolRadius, onMove = () => {}, onStatus = () => {} }) {
@@ -19,7 +17,6 @@ export class AutoSculptor {
     this.passQueue = [];
     this.cursor = new THREE.Vector3();
     this.totalRemoved = 0;
-    this.stalledPasses = 0;
   }
 
   start(fromPoint = null) {
@@ -28,23 +25,12 @@ export class AutoSculptor {
     this.pass = 0;
     this.passQueue = [];
     this.totalRemoved = 0;
-    this.stalledPasses = 0;
     if (fromPoint) this.cursor.copy(fromPoint);
     this.onStatus(this.getState());
   }
 
-  stop() {
-    this.running = false;
-    this.onStatus(this.getState());
-  }
-
-  reset() {
-    this.running = false;
-    this.pass = 0;
-    this.passQueue = [];
-    this.totalRemoved = 0;
-    this.stalledPasses = 0;
-  }
+  stop() { this.running = false; this.onStatus(this.getState()); }
+  reset() { this.running = false; this.pass = 0; this.passQueue = []; this.totalRemoved = 0; }
 
   buildPass() {
     const cells = this.planner.getRemovableSurfaceCells();
@@ -56,24 +42,16 @@ export class AutoSculptor {
     }
 
     this.pass++;
-
-    // Nearest-neighbour ordering only changes travel order. Membership is frozen
-    // for this pass, so newly exposed inner cells can NOT jump the queue.
-    const remaining = cells.slice();
-    const ordered = [];
-    let p = this.cursor.clone();
-    while (remaining.length) {
-      let best = 0;
-      let bestD = Infinity;
-      for (let i = 0; i < remaining.length; i++) {
-        const d = remaining[i].point.distanceToSquared(p);
-        if (d < bestD) { bestD = d; best = i; }
-      }
-      const next = remaining.splice(best, 1)[0];
-      ordered.push(next);
-      p = next.point;
-    }
-    this.passQueue = ordered;
+    // Coherent raster/shell sweep. Membership is frozen before cutting starts,
+    // so no newly exposed inner cell can jump ahead of remaining outer material.
+    cells.sort((a,b) => {
+      const dy = b.y - a.y;
+      if (dy) return dy;
+      const dz = a.z - b.z;
+      if (dz) return dz;
+      return (a.z & 1) ? b.x - a.x : a.x - b.x;
+    });
+    this.passQueue = cells;
     this.onStatus(this.getState());
     return true;
   }
@@ -82,8 +60,6 @@ export class AutoSculptor {
     if (!this.running) return { removed: 0, running: false };
     if (!this.passQueue.length && !this.buildPass()) return { removed: 0, running: false, complete: true };
 
-    // Discard cells already removed incidentally by a neighbouring spherical cut,
-    // but never substitute a cell from the next interior frontier during this pass.
     while (this.passQueue.length) {
       const candidate = this.passQueue.shift();
       if (!this.stock.solid(candidate.x, candidate.y, candidate.z)) continue;
@@ -95,24 +71,17 @@ export class AutoSculptor {
       const removed = this.planner.carveSphere(candidate.point, this.getToolRadius());
       this.totalRemoved += removed;
       if (removed > 0) {
-        this.stalledPasses = 0;
         this.onStatus(this.getState());
         return { removed, running: true, pass: this.pass, remainingInPass: this.passQueue.length };
       }
     }
 
-    // Finished the complete outer frontier. Only NOW may the next exposed shell be considered.
     this.passQueue = [];
     this.onStatus(this.getState());
     return { removed: 0, running: true, passComplete: true, pass: this.pass };
   }
 
   getState() {
-    return {
-      running: this.running,
-      pass: this.pass,
-      remainingInPass: this.passQueue.length,
-      totalRemoved: this.totalRemoved
-    };
+    return { running: this.running, pass: this.pass, remainingInPass: this.passQueue.length, totalRemoved: this.totalRemoved };
   }
 }
