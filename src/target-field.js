@@ -11,31 +11,19 @@ export class AnalyticTargetField {
   }
 }
 
-/**
- * Conservative orthographic multi-view depth target.
- * Contract for each depth PNG:
- * - transparent pixel => outside the target silhouette for that view
- * - grayscale 0..1 => surface depth from far (0) to near (1)
- * - image already normalized/cropped to the same stock bounding box
- *
- * A point is removable only when enough views independently classify it as
- * being in front of the observed surface or outside its silhouette.
- */
+/** Conservative orthographic multi-view depth target. */
 export class DepthTargetField {
   constructor(referenceViews, {
-    worldSize = 3,
-    height = 3,
+    dimensions = { x: 3, y: 3, z: 3 },
     minOutsideVotes = 2,
     depthTolerance = 0.025,
     silhouetteVotes = 2
   } = {}) {
     this.referenceViews = referenceViews;
-    this.worldSize = worldSize;
-    this.height = height;
+    this.dimensions = { ...dimensions };
     this.minOutsideVotes = minOutsideVotes;
     this.depthTolerance = depthTolerance;
     this.silhouetteVotes = silhouetteVotes;
-    this.tmp = new THREE.Vector3();
   }
 
   classify(localPoint) {
@@ -45,16 +33,18 @@ export class DepthTargetField {
     let outsideVotes = 0;
     let validVotes = 0;
     let silhouetteVotes = 0;
-    const half = this.worldSize / 2;
 
     for (const view of views) {
       const a = THREE.MathUtils.degToRad(view.angleDeg);
       const ca = Math.cos(a), sa = Math.sin(a);
-      // Rotate stock point into a camera that sits on +Z and looks toward -Z.
       const qx = localPoint.x * ca - localPoint.z * sa;
       const qz = localPoint.x * sa + localPoint.z * ca;
-      const u = (qx + half) / this.worldSize;
-      const v = localPoint.y / this.height;
+
+      // Rotated orthographic bounds of a rectangular X/Z stock.
+      const projectedWidth = Math.abs(ca) * this.dimensions.x + Math.abs(sa) * this.dimensions.z;
+      const projectedDepth = Math.abs(sa) * this.dimensions.x + Math.abs(ca) * this.dimensions.z;
+      const u = qx / projectedWidth + 0.5;
+      const v = localPoint.y / this.dimensions.y;
       const sample = this.referenceViews.sample(view, u, v);
 
       if (sample.masked) {
@@ -64,9 +54,9 @@ export class DepthTargetField {
       if (!sample.valid || sample.confidence < 0.15) continue;
       validVotes++;
 
-      // White/1 means the target surface is closest to the camera (+Z side).
-      const targetZ = -half + sample.depth * this.worldSize;
-      if (qz > targetZ + this.depthTolerance * this.worldSize) outsideVotes++;
+      // White/1 means target surface nearest the camera (+Z in camera space).
+      const targetZ = -projectedDepth / 2 + sample.depth * projectedDepth;
+      if (qz > targetZ + this.depthTolerance * projectedDepth) outsideVotes++;
     }
 
     const outsideByDepth = outsideVotes >= Math.min(this.minOutsideVotes, Math.max(1, validVotes));
