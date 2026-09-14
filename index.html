@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buonarotti — Robot Sculptor Lab</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <h1>BUONAROTTI</h1>
+        <p>robot sculptor sandbox</p>
+      </div>
+      <div class="status-group">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText">LISTO</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel controls">
+        <h2>Control</h2>
+        <label>X <input id="x" type="range" min="-2.4" max="2.4" value="0" step="0.02"></label>
+        <label>Y <input id="y" type="range" min="0.15" max="3.0" value="1.55" step="0.02"></label>
+        <label>Z <input id="z" type="range" min="-2.1" max="2.1" value="2.05" step="0.02"></label>
+        <label>Herramienta
+          <select id="toolSelect">
+            <option value="coarse">Fresa gruesa</option>
+            <option value="fine">Fresa fina</option>
+            <option value="needle">Punta detalle</option>
+          </select>
+        </label>
+        <label>Plato <input id="turntable" type="range" min="-180" max="180" value="0" step="1"></label>
+
+        <div class="buttons">
+          <button id="carveBtn">Desbastar</button>
+          <button id="autoBtn">Auto demo</button>
+          <button id="resetBtn" class="secondary">Reset</button>
+        </div>
+
+        <div class="readout">
+          <div><span>Corteza activa</span><strong id="surfaceCount">0</strong></div>
+          <div><span>Material removido</span><strong id="removedCount">0</strong></div>
+          <div><span>Resolución</span><strong id="resolutionText">32³</strong></div>
+        </div>
+
+        <div class="help">
+          <b>Teclado</b>
+          <span>A/D: X · W/S: Z · R/F: Y · Espacio: desbastar</span>
+        </div>
+      </section>
+
+      <section class="viewport-wrap">
+        <canvas id="view"></canvas>
+        <div class="camera-label main">CÁMARA PRINCIPAL</div>
+        <div class="camera-label top">CENITAL</div>
+        <div class="camera-label side">LATERAL</div>
+        <div class="camera-label wrist">MUÑECA</div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
