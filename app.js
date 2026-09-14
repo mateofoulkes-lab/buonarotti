@@ -10,9 +10,9 @@ const $ = s => document.querySelector(s);
 const ui = {
   canvas: $('#view'), x: $('#x'), y: $('#y'), z: $('#z'), turntable: $('#turntable'),
   tool: $('#toolSelect'), carve: $('#carveBtn'), carveLatch: $('#carveLatchBtn'), sculpt: $('#sculptBtn'), reset: $('#resetBtn'),
-  blockPreset: $('#blockPreset'), speed: $('#speedSelect'), surface: $('#surfaceCount'), removed: $('#removedCount'),
-  resolution: $('#resolutionText'), pass: $('#passText'), frontier: $('#frontierText'), status: $('#statusText'), dot: $('#statusDot'),
-  targetMode: $('#targetMode'), depthFiles: $('#depthFiles'), depthInfo: $('#depthInfo')
+  blockPreset: $('#blockPreset'), voxelResolution: $('#voxelResolutionSelect'), speed: $('#speedSelect'),
+  surface: $('#surfaceCount'), removed: $('#removedCount'), resolution: $('#resolutionText'), pass: $('#passText'), frontier: $('#frontierText'),
+  status: $('#statusText'), dot: $('#statusDot'), targetMode: $('#targetMode'), depthFiles: $('#depthFiles'), depthInfo: $('#depthInfo')
 };
 
 const BLOCK_PRESETS = {
@@ -61,6 +61,7 @@ const stock = new SparseShell({
 });
 
 const referenceViews = new ReferenceViews();
+window.BuonarottiReferenceViews = referenceViews;
 const planner = new OutsideInPlanner(stock);
 
 const demoSphere = new THREE.Mesh(
@@ -199,10 +200,7 @@ const sculptor = new AutoSculptor({
   }
 });
 
-function stopAutomaticForManual() {
-  if (sculptor.running) sculptor.stop();
-}
-
+function stopAutomaticForManual() { if (sculptor.running) sculptor.stop(); }
 function updateLatchUI() {
   ui.carveLatch.textContent = `Desbaste fijo: ${carveLatched ? 'ON' : 'OFF'}`;
   ui.carveLatch.classList.toggle('active', carveLatched);
@@ -210,10 +208,7 @@ function updateLatchUI() {
 
 function setBlockPreset(name) {
   const dims = BLOCK_PRESETS[name] || BLOCK_PRESETS.cube;
-  sculptor.reset();
-  planner.resetLayers();
-  carveLatched = false;
-  updateLatchUI();
+  sculptor.reset(); planner.resetLayers(); carveLatched = false; updateLatchUI();
   stock.configureDimensions(dims, true);
   updateDemoSphere();
   const safeY = Math.min(dims.y * .55, dims.y - .15);
@@ -224,6 +219,22 @@ function setBlockPreset(name) {
   ui.z.min = -(dims.z * .5 + 1); ui.z.max = dims.z * .5 + 1;
   applyTargetMode();
   setStatus(`BLOQUE ${name.toUpperCase()} LISTO`);
+}
+
+function setVoxelResolution(multiplier) {
+  multiplier = Number(multiplier);
+  sculptor.reset(); planner.resetLayers(); carveLatched = false; momentaryCarving = false; updateLatchUI();
+  try {
+    stock.setResolutionMultiplier(multiplier, true);
+    updateDemoSphere();
+    applyTargetMode();
+    updateLayerReadout();
+    setStatus(`RESOLUCIÓN VOXEL ${multiplier}×`);
+  } catch (err) {
+    console.error(err);
+    ui.voxelResolution.value = String(stock.resolutionMultiplier || 1);
+    setStatus('ERROR DE RESOLUCIÓN');
+  }
 }
 
 [ui.x,ui.y,ui.z].forEach(e=>e.addEventListener('input',()=>{stopAutomaticForManual();syncTarget()}));
@@ -241,6 +252,7 @@ ui.sculpt.addEventListener('click',()=>{
   catch(err) { setStatus(err.message.toUpperCase()); }
 });
 ui.blockPreset.addEventListener('change',()=>setBlockPreset(ui.blockPreset.value));
+ui.voxelResolution.addEventListener('change',()=>setVoxelResolution(ui.voxelResolution.value));
 ui.targetMode.addEventListener('change',applyTargetMode);
 ui.depthFiles.addEventListener('change', async () => {
   const files=[...ui.depthFiles.files];
@@ -279,9 +291,7 @@ function doWorkTick() {
     updateLayerReadout();
     return;
   }
-  if(momentaryCarving||carveLatched){
-    for(let i=0;i<speed;i++) cut();
-  }
+  if(momentaryCarving||carveLatched){ for(let i=0;i<speed;i++) cut(); }
 }
 
 function viewport(cam,x,y,w,h){renderer.setViewport(x,y,w,h);renderer.setScissor(x,y,w,h);renderer.setScissorTest(true);cam.aspect=w/h;cam.updateProjectionMatrix();renderer.render(scene,cam)}
@@ -304,15 +314,17 @@ window.Buonarotti={
   setCarveLatched(value){carveLatched=!!value;updateLatchUI()},
   setSpeed(multiplier){if([1,4,8,16].includes(Number(multiplier)))ui.speed.value=String(multiplier)},
   setBlockPreset(name){ui.blockPreset.value=name;setBlockPreset(name)},
+  setVoxelResolution(multiplier){if([1,2,4].includes(Number(multiplier))){ui.voxelResolution.value=String(multiplier);setVoxelResolution(multiplier)}},
   startSculpt(){if(!sculptor.running)ui.sculpt.click()},
   stopSculpt(){if(sculptor.running)sculptor.stop()},
   setTargetMode(mode){ui.targetMode.value=mode;applyTargetMode()},
+  autodetectViewsByName(){const result=referenceViews.autodetectAnglesByName();applyTargetMode();return result},
   async loadDepthFiles(files){const result=await referenceViews.loadDepthFiles(files);applyTargetMode();return result},
   reset(){ui.reset.click()},
   getState(){return{
     toolPosition:target.toArray(),tool:currentTool,turntableDegrees:THREE.MathUtils.radToDeg(platter.rotation.y),
     activeSurfaceCells:stock.surface.size,removedCells:stock.removed.size,resolution:[stock.nx,stock.ny,stock.nz],dimensions:stock.actualDimensions,
-    targetMode:ui.targetMode.value,depthViews:referenceViews.getSummary(),carveLatched,speed:getSpeed(),
+    resolutionMultiplier:stock.resolutionMultiplier,targetMode:ui.targetMode.value,depthViews:referenceViews.getSummary(),carveLatched,speed:getSpeed(),
     layer:planner.getLayerState(),sculptor:sculptor.getState()
   }}
 };
