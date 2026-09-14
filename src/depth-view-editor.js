@@ -16,12 +16,15 @@ function getRefs() {
   return window.BuonarottiReferenceViews;
 }
 
+function rebuildTarget() {
+  if (window.Buonarotti?.setTargetMode) window.Buonarotti.setTargetMode('depth');
+}
+
 function applyAngle(id, angle) {
   const refs = getRefs();
   if (!refs) return;
   refs.setAngle(id, angle);
-  // Rebuild the depth target and reset the frozen outside-in frontier safely.
-  if (window.Buonarotti?.setTargetMode) window.Buonarotti.setTargetMode('depth');
+  rebuildTarget();
 }
 
 function render() {
@@ -37,9 +40,19 @@ function render() {
 
   editor.classList.remove('empty');
   editor.innerHTML = `
-    <div class="depth-editor-title">Asignación de vistas</div>
-    <div class="depth-editor-hint">Elegí una cara o escribí el ángulo exacto. 0° = frente, 90° = derecha.</div>
+    <div class="depth-editor-head">
+      <div>
+        <div class="depth-editor-title">Asignación de vistas</div>
+        <div class="depth-editor-hint">0° = frente, 90° = derecha. Podés corregir cualquier detección.</div>
+      </div>
+      <button id="autoDetectViewsBtn" class="secondary compact-btn">Autodetectar por nombre</button>
+    </div>
   `;
+
+  editor.querySelector('#autoDetectViewsBtn')?.addEventListener('click', () => {
+    refs.autodetectAnglesByName?.();
+    rebuildTarget();
+  });
 
   for (const view of views) {
     const row = document.createElement('div');
