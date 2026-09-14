@@ -41,6 +41,7 @@
           </select>
         </label>
         <label>Plato <input id="turntable" type="range" min="-180" max="180" value="0" step="1"></label>
+        <label class="check-label"><input id="autoTurntable" type="checkbox" checked> Giro automático de turntable</label>
         <label>Bloque
           <select id="blockPreset">
             <option value="cube">Cubo — 3 × 3 × 3</option>
@@ -70,6 +71,7 @@
             <option value="none">Libre (sólo outside-in)</option>
             <option value="sphere">Esfera de prueba</option>
             <option value="depth">Depthmaps</option>
+            <option value="glb">GLB exacto</option>
           </select>
         </label>
         <label class="file-label">Depthmaps PNG
@@ -77,6 +79,10 @@
         </label>
         <div id="depthInfo" class="mini-status">Sin depthmaps cargados</div>
         <div id="depthViewsEditor" class="depth-views-editor empty"></div>
+        <label class="file-label">Modelo GLB
+          <input id="glbFile" type="file" accept=".glb,model/gltf-binary">
+        </label>
+        <div id="glbInfo" class="mini-status">Sin GLB cargado</div>
 
         <div class="buttons">
           <button id="carveBtn">Mantener: desbastar</button>
@@ -96,6 +102,14 @@
         <div class="help">
           <b>Regla obligatoria</b>
           <span>Buonarotti agota una corteza exterior completa antes de avanzar a la siguiente. No perfora hacia adentro ni deja columnas exteriores para después.</span>
+        </div>
+        <div class="help">
+          <b>GLB</b>
+          <span>El modelo se centra y escala automáticamente dentro del bloque y se usa como volumen objetivo. El wireframe celeste muestra la referencia.</span>
+        </div>
+        <div class="help">
+          <b>Turntable</b>
+          <span>En automático, cada zona se gira hacia la herramienta antes de cortar. Se puede desactivar para comparar.</span>
         </div>
         <div class="help">
           <b>Resolución</b>
