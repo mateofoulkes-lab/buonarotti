@@ -1,5 +1,3 @@
-const DEFAULT_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315];
-
 async function fileToImageData(file) {
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement('canvas');
@@ -36,7 +34,7 @@ export class ReferenceViews {
     for (let i = 0; i < list.length; i++) {
       const file = list[i];
       const image = await fileToImageData(file);
-      const fallback = DEFAULT_ANGLES[i] ?? (360 * i / Math.max(1, list.length));
+      const fallback = 360 * i / Math.max(1, list.length);
       this.views.push({
         id: `view-${i}`,
         name: file.name,
